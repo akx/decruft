@@ -29,7 +29,7 @@ impl SortOrder {
         }
     }
 
-    pub fn sort_entries(&self, entries: &mut Vec<CruftDirectory>) {
+    pub fn sort_entries(&self, entries: &mut [CruftDirectory]) {
         match self {
             SortOrder::SizeDescending => {
                 entries.sort_by(|a, b| b.size.cmp(&a.size));
