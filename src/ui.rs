@@ -135,7 +135,7 @@ fn filter_dirs(
                 return false;
             }
             if let Some(days) = max_age_days {
-                if dir.newest_file_age_days < days {
+                if dir.newest_file_age_days.unwrap_or(0.0) < days as f64 {
                     return false;
                 }
             }
@@ -205,7 +205,7 @@ pub fn run_ui<B: Backend>(
                     let size_formatted = format!("{:>15} ", size_str);
                     
                     // Format age with fixed width (10 chars)
-                    let age_str = format!("{} days", dir.newest_file_age_days);
+                    let age_str = format!("{} days", dir.newest_file_age_days.unwrap_or(0.0).round());
                     let age_formatted = format!("{:>10} ", age_str);
                     
                     // Format type with fixed width (15 chars)

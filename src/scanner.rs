@@ -10,7 +10,7 @@ pub struct CruftDirectory {
     pub path: PathBuf,
     pub size: u64,
     pub crufty_reason: CruftyReason,
-    pub newest_file_age_days: u64,
+    pub newest_file_age_days: Option<f64>,
 }
 
 impl CruftDirectory {
@@ -80,16 +80,11 @@ pub fn scan_directories(
             // Skip this directory and its children if it's cruft
             if let Some(reason) = check_crufty(path) {
                 // We found cruft, so add it to our list before skipping recursion
-                let size = calculate_dir_size(path).unwrap_or(0);
-                
-                // Calculate the age of the newest file in the directory
-                let newest_file_age_days = get_newest_file_age_days(path).unwrap_or(0);
-                
                 let cruft_dir = CruftDirectory {
                     path: path.to_path_buf(),
-                    size,
+                    size: calculate_dir_size(path).unwrap_or(0),
                     crufty_reason: reason,
-                    newest_file_age_days,
+                    newest_file_age_days: get_newest_file_age_days(path).unwrap_or(None),
                 };
                 
                 // Add to the shared vector
@@ -202,45 +197,36 @@ fn check_crufty(path: &Path) -> Option<CruftyReason> {
 }
 
 /// Calculates the age of the newest file in a directory in days
-fn get_newest_file_age_days(path: &Path) -> Result<u64> {
-    let mut newest_time = SystemTime::UNIX_EPOCH; // Start with the oldest possible time
+fn get_newest_file_age_days(path: &Path) -> Result<Option<f64>> {
     let now = SystemTime::now();
-    let mut found_file = false;
-    
-    for entry in WalkDir::new(path)
+
+    let newest_child_mtime = WalkDir::new(path)
+        .max_depth(3)
         .into_iter()
         .filter_map(Result::ok)
         .filter(|e| e.file_type().is_file())
-    {
-        if let Ok(metadata) = fs::metadata(entry.path()) {
-            if let Ok(modified_time) = metadata.modified() {
-                if newest_time == SystemTime::UNIX_EPOCH || modified_time > newest_time {
-                    newest_time = modified_time;
-                    found_file = true;
-                }
+        .filter_map(|entry| {
+            if let Ok(metadata) = fs::metadata(entry.path()) {
+                metadata.modified().ok()
+            } else {
+                None
             }
+        })
+        .max();
+
+    if let Some(newest_child_mtime) = newest_child_mtime {
+        let since = now.duration_since(newest_child_mtime)?.as_secs();
+        return Ok(Some(since as f64 / 86400.0));
+    }
+
+    // If no files found, use the directory's own modification time
+    if let Ok(metadata) = fs::metadata(path) {
+        if let Ok(modified_time) = metadata.modified() {
+            let since = now.duration_since(modified_time)?.as_secs();
+            return Ok(Some(since as f64 / 86400.0));
         }
     }
-    
-    if !found_file {
-        // If no files found, use the directory's own modification time
-        if let Ok(metadata) = fs::metadata(path) {
-            if let Ok(modified_time) = metadata.modified() {
-                newest_time = modified_time;
-                found_file = true;
-            }
-        }
-    }
-    
-    if found_file {
-        if let Ok(duration) = now.duration_since(newest_time) {
-            // Convert seconds to days (86400 seconds in a day)
-            return Ok(duration.as_secs() / 86400);
-        }
-    }
-    
-    // Default to 0 days if we couldn't determine the age
-    Ok(0)
+    Ok(None)
 }
 
 fn calculate_dir_size(path: &Path) -> Result<u64> {

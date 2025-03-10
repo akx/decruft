@@ -35,7 +35,11 @@ impl SortOrder {
                 entries.sort_by(|a, b| b.size.cmp(&a.size));
             },
             SortOrder::AgeDescending => {
-                entries.sort_by(|a, b| b.newest_file_age_days.cmp(&a.newest_file_age_days));
+                entries.sort_by(|a, b| {
+                    let age1 = b.newest_file_age_days.unwrap_or(0.0);
+                    let age2 = a.newest_file_age_days.unwrap_or(0.0);
+                    age1.total_cmp(&age2)
+                });
             },
             SortOrder::Alphabetical => {
                 entries.sort_by(|a, b| a.path.to_string_lossy().cmp(&b.path.to_string_lossy()));
