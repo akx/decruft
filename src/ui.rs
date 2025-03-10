@@ -47,7 +47,7 @@ impl AppState {
     }
     
     pub fn update_spinner(&mut self) {
-        self.spinner_frame = (self.spinner_frame + 1) % 8; // 8 frames in our spinner
+        self.spinner_frame = (self.spinner_frame + 1) % 8;
     }
     
     pub fn mark_scan_complete(&mut self) {
@@ -148,8 +148,6 @@ fn filter_dirs(
 
     filtered
 }
-
-// No longer needed - we now use paths as identifiers
 
 pub fn run_ui<B: Backend>(
     terminal: &mut Terminal<B>,
