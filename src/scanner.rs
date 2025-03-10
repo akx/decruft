@@ -25,6 +25,7 @@ pub enum CruftyReason {
     CacheDir,
     CacheTagFound,
     BuildDir,
+    RustTargetDir,
     TempDir,
     VenvDir,
     DistDir,
@@ -34,14 +35,15 @@ pub enum CruftyReason {
 impl std::fmt::Display for CruftyReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CruftyReason::NodeModules => write!(f, "node_modules"),
+            CruftyReason::BuildDir => write!(f, "build dir"),
             CruftyReason::CacheDir => write!(f, "cache dir"),
             CruftyReason::CacheTagFound => write!(f, "CACHEDIR.TAG"),
-            CruftyReason::BuildDir => write!(f, "build dir"),
-            CruftyReason::TempDir => write!(f, "temp dir"),
-            CruftyReason::VenvDir => write!(f, "venv"),
             CruftyReason::DistDir => write!(f, "dist dir"),
+            CruftyReason::NodeModules => write!(f, "node_modules"),
+            CruftyReason::RustTargetDir => write!(f, "rust target dir"),
+            CruftyReason::TempDir => write!(f, "temp dir"),
             CruftyReason::ToxDir => write!(f, "tox dir"),
+            CruftyReason::VenvDir => write!(f, "venv"),
         }
     }
 }
@@ -109,11 +111,10 @@ pub fn scan_directories(
 }
 
 const PROTECTED_DIRS: &[&str] = &[
-    ".git",         // Git configuration
-    ".github",       // GitHub configuration
-    ".vscode",       // VS Code configuration
-    ".idea",         // IntelliJ configuration
-    "node_modules/.bin", // Executable scripts in node_modules
+    ".git",
+    ".github",
+    ".idea",
+    ".vscode",
 ];
 
 /// Checks if a directory is protected and should not be considered as cruft
@@ -136,13 +137,12 @@ fn is_protected_directory(path: &Path) -> bool {
 }
 
 fn check_crufty(path: &Path) -> Option<CruftyReason> {
-    let path_str = path.to_string_lossy();
-    
     // Skip protected directories
     if is_protected_directory(path) {
         return None;
     }
-    
+    let path_str = path.to_string_lossy();
+
     // Get the filename as lowercase for comparisons
     let file_name = match path.file_name() {
         Some(name) => name.to_string_lossy().to_lowercase(),
@@ -160,8 +160,12 @@ fn check_crufty(path: &Path) -> Option<CruftyReason> {
     }
     
     // Check for build directories
-    if file_name == "build" || file_name == "target" || file_name.contains("build") {
+    if file_name == "build" || file_name.contains("build") {
         return Some(CruftyReason::BuildDir);
+    }
+
+    if file_name == "target" && path.join(".rustc_info.json").is_file() {
+        return Some(CruftyReason::RustTargetDir);
     }
     
     // Check for temp directories - avoid matching "templates"
