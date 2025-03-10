@@ -12,6 +12,23 @@ use ratatui::Terminal;
 
 use crate::scanner::{CruftDirectory, is_common_cruft};
 
+// A trait for cycling through enum variants
+pub trait Cycle: Sized + Copy + PartialEq + 'static {
+    // All possible values in order
+    fn all_values() -> &'static [Self];
+    
+    // Get the next value in the cycle
+    fn next(&self) -> Self {
+        let all = Self::all_values();
+        let current_idx = all.iter()
+            .position(|&val| val == *self)
+            .unwrap_or(0);
+        
+        let next_idx = (current_idx + 1) % all.len();
+        all[next_idx]
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortOrder {
     SizeDescending,
@@ -19,24 +36,19 @@ pub enum SortOrder {
     Alphabetical,
 }
 
-impl SortOrder {
-    // The ordered rotation of sort modes
-    const ALL_ORDERS: [SortOrder; 3] = [
-        SortOrder::SizeDescending, 
-        SortOrder::AgeDescending, 
-        SortOrder::Alphabetical
-    ];
-    
-    pub fn next(&self) -> Self {
-        let current_idx = Self::ALL_ORDERS.iter()
-            .position(|&order| order == *self)
-            .unwrap_or(0);
-        
-        // Get the next index, wrapping around to 0 if needed
-        let next_idx = (current_idx + 1) % Self::ALL_ORDERS.len();
-        Self::ALL_ORDERS[next_idx]
+// Implement the Cycle trait for SortOrder
+impl Cycle for SortOrder {
+    fn all_values() -> &'static [Self] {
+        static ALL: [SortOrder; 3] = [
+            SortOrder::SizeDescending, 
+            SortOrder::AgeDescending, 
+            SortOrder::Alphabetical
+        ];
+        &ALL
     }
-    
+}
+
+impl SortOrder {
     pub fn as_str(&self) -> &'static str {
         match self {
             SortOrder::SizeDescending => "size",
@@ -70,7 +82,11 @@ impl AppState {
             confirm_delete: None,
             min_size_bytes,
             show_all_types,
-            max_age_days: if show_old_dirs { Some(90) } else { None }, // Default to 90 days if old filter enabled
+            max_age_days: if show_old_dirs { 
+                AgeFilter::Days90.to_days() 
+            } else { 
+                AgeFilter::None.to_days() 
+            },
             sort_order: SortOrder::SizeDescending, // Default sort by size
             scan_complete: false,
             spinner_frame: 0,
@@ -92,27 +108,103 @@ impl AppState {
     pub fn toggle_show_all(&mut self) {
         self.show_all_types = !self.show_all_types;
     }
-    
-    pub fn toggle_skip_small(&mut self) {
-        // Toggle between 0 (show all) and 1 MB (skip small)
-        if self.min_size_bytes < 1_048_576 {
-            self.min_size_bytes = 1_048_576; // 1 MB in bytes
-        } else {
-            self.min_size_bytes = 0;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SizeFilter {
+    ShowAll,
+    SkipSmall,
+}
+
+impl SizeFilter {
+    pub fn to_bytes(&self) -> u64 {
+        match self {
+            SizeFilter::ShowAll => 0,
+            SizeFilter::SkipSmall => 1_048_576, // 1 MB in bytes
         }
     }
     
+    pub fn from_bytes(bytes: u64) -> Self {
+        if bytes >= 1_048_576 {
+            SizeFilter::SkipSmall
+        } else {
+            SizeFilter::ShowAll
+        }
+    }
+}
+
+// Implement the Cycle trait for SizeFilter
+impl Cycle for SizeFilter {
+    fn all_values() -> &'static [Self] {
+        static ALL: [SizeFilter; 2] = [
+            SizeFilter::ShowAll,
+            SizeFilter::SkipSmall,
+        ];
+        &ALL
+    }
+}
+
+impl AppState {
+    pub fn toggle_skip_small(&mut self) {
+        // Convert current min_size_bytes to SizeFilter
+        let current = SizeFilter::from_bytes(self.min_size_bytes);
+        // Get the next SizeFilter in the cycle
+        let next = current.next();
+        // Convert back to bytes
+        self.min_size_bytes = next.to_bytes();
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgeFilter {
+    None,
+    Days90,
+    Days180,
+    Days365,
+}
+
+impl AgeFilter {
+    pub fn to_days(&self) -> Option<u64> {
+        match self {
+            AgeFilter::None => None,
+            AgeFilter::Days90 => Some(90),
+            AgeFilter::Days180 => Some(180),
+            AgeFilter::Days365 => Some(365),
+        }
+    }
+    
+    pub fn from_days(days: Option<u64>) -> Self {
+        match days {
+            None => AgeFilter::None,
+            Some(90) => AgeFilter::Days90,
+            Some(180) => AgeFilter::Days180,
+            Some(365) => AgeFilter::Days365,
+            _ => AgeFilter::None,
+        }
+    }
+}
+
+// Implement the Cycle trait for AgeFilter
+impl Cycle for AgeFilter {
+    fn all_values() -> &'static [Self] {
+        static ALL: [AgeFilter; 4] = [
+            AgeFilter::None,
+            AgeFilter::Days90,
+            AgeFilter::Days180,
+            AgeFilter::Days365,
+        ];
+        &ALL
+    }
+}
+
+impl AppState {
     pub fn toggle_old_dirs(&mut self) {
-        // Cycle through age thresholds
-        static AGE_OPTIONS: [Option<u64>; 4] = [None, Some(90), Some(180), Some(365)];
-        
-        let current_idx = AGE_OPTIONS.iter()
-            .position(|&opt| opt == self.max_age_days)
-            .unwrap_or(0);
-            
-        // Get the next index, wrapping around to 0 if needed
-        let next_idx = (current_idx + 1) % AGE_OPTIONS.len();
-        self.max_age_days = AGE_OPTIONS[next_idx];
+        // Convert current max_age_days to AgeFilter
+        let current = AgeFilter::from_days(self.max_age_days);
+        // Get the next AgeFilter in the cycle
+        let next = current.next();
+        // Convert back to Option<u64>
+        self.max_age_days = next.to_days();
     }
     
     pub fn request_delete_confirmation(&mut self, path: String) {
