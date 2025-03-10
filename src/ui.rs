@@ -139,7 +139,7 @@ fn filter_dirs(
                     return false;
                 }
             }
-            return true
+            true
         })
         .cloned() // Clone the CruftDirectory objects
         .collect::<Vec<_>>();
