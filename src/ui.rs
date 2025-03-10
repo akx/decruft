@@ -9,85 +9,36 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 use ratatui::Terminal;
-
-use crate::scanner::{CruftDirectory, is_common_cruft};
-
-// A trait for cycling through enum variants
-pub trait Cycle: Sized + Copy + PartialEq + 'static {
-    // All possible values in order
-    fn all_values() -> &'static [Self];
-    
-    // Get the next value in the cycle
-    fn next(&self) -> Self {
-        let all = Self::all_values();
-        let current_idx = all.iter()
-            .position(|&val| val == *self)
-            .unwrap_or(0);
-        
-        let next_idx = (current_idx + 1) % all.len();
-        all[next_idx]
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SortOrder {
-    SizeDescending,
-    AgeDescending,
-    Alphabetical,
-}
-
-// Implement the Cycle trait for SortOrder
-impl Cycle for SortOrder {
-    fn all_values() -> &'static [Self] {
-        static ALL: [SortOrder; 3] = [
-            SortOrder::SizeDescending, 
-            SortOrder::AgeDescending, 
-            SortOrder::Alphabetical
-        ];
-        &ALL
-    }
-}
-
-impl SortOrder {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            SortOrder::SizeDescending => "size",
-            SortOrder::AgeDescending => "age",
-            SortOrder::Alphabetical => "name",
-        }
-    }
-}
+use crate::age_filter::AgeFilter;
+use crate::cycle::Cycle;
+use crate::scanner::{is_common_cruft, CruftDirectory};
+use crate::size_filter::SizeFilter;
+use crate::sort_order::SortOrder;
 
 pub struct AppState {
     pub list_state: ListState,
-    pub selected_index: Option<usize>,
+    pub selected_path: Option<String>,
     pub show_help: bool,
     pub confirm_delete: Option<String>, // Path of directory to delete, if confirmation is pending
-    pub min_size_bytes: u64,
     pub show_all_types: bool,
-    pub max_age_days: Option<u64>, // None means no age filter, Some(days) means show only dirs older than days
+    pub age_filter: AgeFilter,
     pub sort_order: SortOrder,
+    pub size_filter: SizeFilter,
     pub scan_complete: bool,
     pub spinner_frame: usize, // For animation
 }
 
 impl AppState {
-    pub fn new(min_size_bytes: u64, show_all_types: bool, show_old_dirs: bool) -> Self {
-        let mut list_state = ListState::default();
-        list_state.select(Some(0));
+    pub fn new() -> Self {
         Self {
-            list_state,
-            selected_index: Some(0),
+            list_state: ListState::default(),
+            selected_path: None,
             show_help: false,
             confirm_delete: None,
-            min_size_bytes,
-            show_all_types,
-            max_age_days: if show_old_dirs { 
-                AgeFilter::Days90.to_days() 
-            } else { 
-                AgeFilter::None.to_days() 
-            },
-            sort_order: SortOrder::SizeDescending, // Default sort by size
+            size_filter: SizeFilter::SkipSmall,
+            show_all_types: false,
+            age_filter: AgeFilter::None,
+            sort_order: SortOrder::SizeDescending,
             scan_complete: false,
             spinner_frame: 0,
         }
@@ -108,103 +59,13 @@ impl AppState {
     pub fn toggle_show_all(&mut self) {
         self.show_all_types = !self.show_all_types;
     }
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SizeFilter {
-    ShowAll,
-    SkipSmall,
-}
-
-impl SizeFilter {
-    pub fn to_bytes(&self) -> u64 {
-        match self {
-            SizeFilter::ShowAll => 0,
-            SizeFilter::SkipSmall => 1_048_576, // 1 MB in bytes
-        }
-    }
-    
-    pub fn from_bytes(bytes: u64) -> Self {
-        if bytes >= 1_048_576 {
-            SizeFilter::SkipSmall
-        } else {
-            SizeFilter::ShowAll
-        }
-    }
-}
-
-// Implement the Cycle trait for SizeFilter
-impl Cycle for SizeFilter {
-    fn all_values() -> &'static [Self] {
-        static ALL: [SizeFilter; 2] = [
-            SizeFilter::ShowAll,
-            SizeFilter::SkipSmall,
-        ];
-        &ALL
-    }
-}
-
-impl AppState {
     pub fn toggle_skip_small(&mut self) {
-        // Convert current min_size_bytes to SizeFilter
-        let current = SizeFilter::from_bytes(self.min_size_bytes);
-        // Get the next SizeFilter in the cycle
-        let next = current.next();
-        // Convert back to bytes
-        self.min_size_bytes = next.to_bytes();
+        self.size_filter = self.size_filter.next();
     }
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AgeFilter {
-    None,
-    Days90,
-    Days180,
-    Days365,
-}
-
-impl AgeFilter {
-    pub fn to_days(&self) -> Option<u64> {
-        match self {
-            AgeFilter::None => None,
-            AgeFilter::Days90 => Some(90),
-            AgeFilter::Days180 => Some(180),
-            AgeFilter::Days365 => Some(365),
-        }
-    }
-    
-    pub fn from_days(days: Option<u64>) -> Self {
-        match days {
-            None => AgeFilter::None,
-            Some(90) => AgeFilter::Days90,
-            Some(180) => AgeFilter::Days180,
-            Some(365) => AgeFilter::Days365,
-            _ => AgeFilter::None,
-        }
-    }
-}
-
-// Implement the Cycle trait for AgeFilter
-impl Cycle for AgeFilter {
-    fn all_values() -> &'static [Self] {
-        static ALL: [AgeFilter; 4] = [
-            AgeFilter::None,
-            AgeFilter::Days90,
-            AgeFilter::Days180,
-            AgeFilter::Days365,
-        ];
-        &ALL
-    }
-}
-
-impl AppState {
     pub fn toggle_old_dirs(&mut self) {
-        // Convert current max_age_days to AgeFilter
-        let current = AgeFilter::from_days(self.max_age_days);
-        // Get the next AgeFilter in the cycle
-        let next = current.next();
-        // Convert back to Option<u64>
-        self.max_age_days = next.to_days();
+        self.age_filter = self.age_filter.next();
     }
     
     pub fn request_delete_confirmation(&mut self, path: String) {
@@ -219,53 +80,72 @@ impl AppState {
         self.show_help = !self.show_help;
     }
 
-    pub fn next(&mut self, items_len: usize) {
-        if items_len == 0 {
+    pub fn select_next_or_previous(&mut self, filtered_dirs: &[CruftDirectory], forward: bool) {
+        if filtered_dirs.is_empty() {
             return;
         }
-        let i = match self.selected_index {
-            Some(i) => {
-                if i >= items_len - 1 {
-                    // Don't wrap around - stay at the last item
-                    items_len - 1
-                } else {
-                    i + 1
-                }
-            }
-            None => 0,
+        
+        let current_pos = if let Some(ref selected_path) = self.selected_path {
+            filtered_dirs.iter().position(|dir| dir.id() == *selected_path)
+        } else {
+            None
         };
-        self.selected_index = Some(i);
-        self.list_state.select(Some(i));
+
+        match current_pos {
+            Some(current_pos) => {
+                let list_len = (filtered_dirs.len() - 1) as i64;
+                let new_pos = ((current_pos as i64) + if forward { 1 } else { -1 }).max(0).min(list_len) as usize;
+                self.list_state.select(Some(new_pos));
+                self.selected_path = Some(filtered_dirs[new_pos].id());
+            }
+            None => {
+                // Selection lost...
+                self.selected_path = None;
+                self.list_state.select(None);
+            }
+        }
     }
 
-    pub fn previous(&mut self, items_len: usize) {
-        if items_len == 0 {
+    // Update selection position based on filtered directories
+    pub fn update_selection(&mut self, filtered_dirs: &[CruftDirectory]) {
+        if filtered_dirs.is_empty() {
+            self.selected_path = None;
+            self.list_state.select(None);
             return;
         }
-        let i = match self.selected_index {
-            Some(i) => {
-                if i == 0 {
-                    // Don't wrap around - stay at the first item
-                    0
-                } else {
-                    i - 1
-                }
+        
+        if let Some(ref selected_path) = self.selected_path {
+            let position = filtered_dirs.iter()
+                .position(|dir| dir.id() == *selected_path);
+                
+            if let Some(idx) = position {
+                // Selected path exists in filtered list, update the visual selection
+                self.list_state.select(Some(idx));
+            } else {
+                // Selected path not found, select the first item
+                let first_path = filtered_dirs[0].id();
+                self.selected_path = Some(first_path);
+                self.list_state.select(Some(0));
             }
-            None => 0,
-        };
-        self.selected_index = Some(i);
-        self.list_state.select(Some(i));
+        } else {
+            // No current selection, select the first item
+            let first_path = filtered_dirs[0].id();
+            self.selected_path = Some(first_path);
+            self.list_state.select(Some(0));
+        }
     }
 }
 
 /// Filters the directory list based on size, type, and age criteria
-fn filter_dirs<'a>(
-    dirs: &'a [CruftDirectory],
-    min_size_bytes: u64,
-    show_all_types: bool,
-    max_age_days: Option<u64>,
-    sort_order: SortOrder,
-) -> Vec<&'a CruftDirectory> {
+fn filter_dirs(
+    dirs: &[CruftDirectory],
+    app_state: &AppState,
+) -> Vec<CruftDirectory> {
+    let min_size_bytes = app_state.size_filter.as_bytes();
+    let show_all_types = app_state.show_all_types;
+    let max_age_days = app_state.age_filter.as_days();
+    let sort_order = app_state.sort_order;
+
     let mut filtered = dirs
         .iter()
         .filter(|dir| {
@@ -284,24 +164,11 @@ fn filter_dirs<'a>(
             
             size_ok && type_ok && age_ok
         })
+        .cloned() // Clone the CruftDirectory objects
         .collect::<Vec<_>>();
-    
-    // Sort according to the selected sort order
-    match sort_order {
-        SortOrder::SizeDescending => {
-            // Sort by size, descending
-            filtered.sort_by(|a, b| b.size.cmp(&a.size));
-        },
-        SortOrder::AgeDescending => {
-            // Sort by age, descending (oldest first)
-            filtered.sort_by(|a, b| b.newest_file_age_days.cmp(&a.newest_file_age_days));
-        },
-        SortOrder::Alphabetical => {
-            // Sort alphabetically by path
-            filtered.sort_by(|a, b| a.path.to_string_lossy().cmp(&b.path.to_string_lossy()));
-        },
-    }
-    
+
+    sort_order.sort_entries(&mut filtered);
+
     filtered
 }
 
@@ -311,15 +178,13 @@ pub fn run_ui<B: Backend>(
     terminal: &mut Terminal<B>,
     found_dirs: &Arc<Mutex<Vec<CruftDirectory>>>,
     scan_complete: &Arc<std::sync::atomic::AtomicBool>,
-    min_size_bytes: u64,
-    show_all_types: bool,
-    show_old_dirs: bool,
 ) -> Result<()> {
-    let mut app_state = AppState::new(min_size_bytes, show_all_types, show_old_dirs);
-    
+    let mut app_state = AppState::new();
+
     // Spinner characters for the animation
     const SPINNER_CHARS: [&str; 8] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"];
     
+
     loop {
         // Check if scanning is complete
         let is_scan_complete = scan_complete.load(std::sync::atomic::Ordering::Relaxed);
@@ -331,6 +196,15 @@ pub fn run_ui<B: Backend>(
         if !app_state.scan_complete {
             app_state.update_spinner();
         }
+        
+        // Refresh the filtered directories
+        let filtered_dirs_cache = {
+            let dirs = found_dirs.lock().unwrap();
+            filter_dirs(&dirs, &app_state)
+        };
+        
+        // Update selection based on newly filtered directories
+        app_state.update_selection(&filtered_dirs_cache);
         
         terminal.draw(|f| {
             let chunks = Layout::default()
@@ -344,30 +218,11 @@ pub fn run_ui<B: Backend>(
             
             // Status bar at the top (no title bar)
             
-            // Directory list
-            let dirs = found_dirs.lock().unwrap();
+            let total_size: u64 = filtered_dirs_cache.iter().map(|d| d.size).sum();
             
-            // Filter and sort directories
-            let filtered_dirs = filter_dirs(&dirs, app_state.min_size_bytes, app_state.show_all_types, app_state.max_age_days, app_state.sort_order);
-                
-            let total_size: u64 = filtered_dirs.iter().map(|d| d.size).sum();
-            
-            // Ensure the selected index is valid
-            if let Some(selected) = app_state.selected_index {
-                if selected >= filtered_dirs.len() {
-                    if filtered_dirs.is_empty() {
-                        app_state.selected_index = None;
-                        app_state.list_state.select(None);
-                    } else {
-                        app_state.selected_index = Some(filtered_dirs.len() - 1);
-                        app_state.list_state.select(Some(filtered_dirs.len() - 1));
-                    }
-                }
-            }
-            
-            let items: Vec<ListItem> = filtered_dirs
+            let items: Vec<ListItem> = filtered_dirs_cache
                 .iter()
-                .map(|&dir| {
+                .map(|dir| {
                     let size_mb = dir.size as f64 / 1_048_576.0;
                     
                     // Format size with fixed width (15 chars)
@@ -419,8 +274,7 @@ pub fn run_ui<B: Backend>(
                     .block(Block::default().borders(Borders::BOTTOM));
                 f.render_widget(confirm, chunks[0]);
             } else if app_state.show_help {
-                let help_text = vec![
-                    "j/Down: Move selection down",
+                let help_text = ["j/Down: Move selection down",
                     "k/Up: Move selection up",
                     "a: Toggle between showing all cruft types or just common ones",
                     "s: Toggle display of small entries (less than 1 MB)",
@@ -429,8 +283,7 @@ pub fn run_ui<B: Backend>(
                     "d: Request deletion of selected directory (with confirmation)",
                     "D: Delete selected directory immediately (Shift+D, no confirmation)",
                     "h: Toggle help screen",
-                    "q: Quit application",
-                ]
+                    "q: Quit application"]
                 .join(" | ");
                 
                 let help = Paragraph::new(help_text)
@@ -444,23 +297,18 @@ pub fn run_ui<B: Backend>(
                 } else {
                     filter_parts.push("common types".to_string());
                 }
-                
-                if app_state.min_size_bytes >= 1_048_576 {
-                    filter_parts.push("size ≥ 1 MB".to_string());
+                filter_parts.push(app_state.size_filter.as_str().to_string());
+                if app_state.age_filter != AgeFilter::None {
+                    filter_parts.push(app_state.age_filter.as_str().to_string());
                 }
-                
-                // Show age filter if active
-                if let Some(days) = app_state.max_age_days {
-                    filter_parts.push(format!("age ≥ {} days", days));
-                }
-                
+
                 // Show sort order
                 filter_parts.push(format!("sort: {}", app_state.sort_order.as_str()));
                 
                 let status_text = if app_state.scan_complete {
                     format!(
                         "Decruft: Found {} dirs ({}). Total: {:.2} MB",
-                        filtered_dirs.len(),
+                        filtered_dirs_cache.len(),
                         filter_parts.join(", "),
                         total_size as f64 / 1_048_576.0
                     )
@@ -469,7 +317,7 @@ pub fn run_ui<B: Backend>(
                     format!(
                         "{} Scanning... Found {} directories so far",
                         spinner,
-                        filtered_dirs.len()
+                        filtered_dirs_cache.len()
                     )
                 };
                 
@@ -491,122 +339,90 @@ pub fn run_ui<B: Backend>(
             if let Event::Key(key) = event::read()? {
                 match key.code {
                     KeyCode::Char('q') => break,
-                    KeyCode::Down | KeyCode::Char('j') => {
-                        let dirs = found_dirs.lock().unwrap();
-                        app_state.next(dirs.len());
-                    }
-                    KeyCode::Up | KeyCode::Char('k') => {
-                        let dirs = found_dirs.lock().unwrap();
-                        app_state.previous(dirs.len());
+                    KeyCode::Down | KeyCode::Char('j') | KeyCode::Up | KeyCode::Char('k') => {
+                        // Use the cached filtered list for navigation
+                        match key.code {
+                            KeyCode::Down | KeyCode::Char('j') => app_state.select_next_or_previous(&filtered_dirs_cache, true),
+                            KeyCode::Up | KeyCode::Char('k') => app_state.select_next_or_previous(&filtered_dirs_cache, false),
+                            _ => unreachable!(),
+                        }
                     }
                     KeyCode::Char('h') => {
                         app_state.toggle_help();
                     }
-                    KeyCode::Char('a') => {
-                        // Toggle showing all cruft types
-                        app_state.toggle_show_all();
-                    }
-                    KeyCode::Char('s') => {
-                        // Toggle showing small entries
-                        app_state.toggle_skip_small();
-                    }
-                    KeyCode::Char('o') => {
-                        // Toggle showing old directories 
-                        app_state.toggle_old_dirs();
-                    }
-                    KeyCode::Char('r') => {
-                        // Toggle sort order
-                        app_state.toggle_sort_order();
+                    KeyCode::Char('a') | KeyCode::Char('s') | KeyCode::Char('o') | KeyCode::Char('r') => {
+                        // Handle filter/sort changes
+                        match key.code {
+                            KeyCode::Char('a') => app_state.toggle_show_all(),
+                            KeyCode::Char('s') => app_state.toggle_skip_small(),
+                            KeyCode::Char('o') => app_state.toggle_old_dirs(),
+                            KeyCode::Char('r') => app_state.toggle_sort_order(),
+                            _ => unreachable!(),
+                        }
+                        
+                        // Mark cache as dirty - will be recalculated at the next render
+                        // We don't need to do anything here since the main loop updates the cache
                     }
                     KeyCode::Char('d') => {
                         // Request confirmation before deleting
-                        if let Some(selected) = app_state.selected_index {
-                            let dirs = found_dirs.lock().unwrap();
-                            
-                            // Filter and sort directories
-                            let filtered_dirs = filter_dirs(&dirs, app_state.min_size_bytes, app_state.show_all_types, app_state.max_age_days, app_state.sort_order);
-                                
-                            if selected < filtered_dirs.len() {
-                                // Request confirmation using path as the identifier
-                                let path = filtered_dirs[selected].path.to_string_lossy().to_string();
-                                app_state.request_delete_confirmation(path);
-                            }
+                        if let Some(ref selected_path) = app_state.selected_path {
+                            // We already have the path, so we can directly request confirmation
+                            app_state.request_delete_confirmation(selected_path.clone());
                         }
                     }
-                    KeyCode::Char('D') => {
-                        // Immediately delete without confirmation (Shift+D)
-                        if let Some(selected) = app_state.selected_index {
-                            {
-                                let mut dirs = found_dirs.lock().unwrap();
-                                
-                                // Filter and sort directories
-                                let filtered_dirs = filter_dirs(&dirs, app_state.min_size_bytes, app_state.show_all_types, app_state.max_age_days, app_state.sort_order);
-                                
-                                if selected < filtered_dirs.len() {
-                                    // Get the path to delete
-                                    let path_to_delete = filtered_dirs[selected].path.clone();
+                    KeyCode::Char('D') | KeyCode::Char('y') => {
+                        // Handle deletion (with or without confirmation)
+                        match key.code {
+                            KeyCode::Char('D') => {
+                                // Immediately delete without confirmation (Shift+D)
+                                if let Some(ref selected_path) = app_state.selected_path {
+                                    let mut dirs = found_dirs.lock().unwrap();
                                     
-                                    // Actually delete the directory
-                                    match std::fs::remove_dir_all(&path_to_delete) {
-                                        Ok(_) => {
-                                            // Remove from our list
-                                            dirs.retain(|dir| dir.path != path_to_delete);
-                                            
-                                            // Keep filtered_dirs for selection update
-                                            let dirs_remaining = filter_dirs(&dirs, app_state.min_size_bytes, app_state.show_all_types, app_state.max_age_days, app_state.sort_order);
-                                            
-                                            // Update selection index
-                                            if dirs_remaining.is_empty() {
-                                                app_state.selected_index = None;
-                                                app_state.list_state.select(None);
-                                            } else if selected >= dirs_remaining.len() {
-                                                app_state.selected_index = Some(dirs_remaining.len() - 1);
-                                                app_state.list_state.select(Some(dirs_remaining.len() - 1));
+                                    // Find the directory with the selected path
+                                    if let Some(pos) = dirs.iter().position(|dir| dir.id() == *selected_path) {
+                                        // Get the path to delete
+                                        let path_to_delete = dirs[pos].path.clone();
+                                        
+                                        // Actually delete the directory
+                                        match std::fs::remove_dir_all(&path_to_delete) {
+                                            Ok(_) => {
+                                                // Remove from our list
+                                                dirs.retain(|dir| dir.path != path_to_delete);
+                                                
+                                                // Cache will be refreshed on the next render
+                                            }
+                                            Err(e) => {
+                                                eprintln!("Error deleting directory {}: {}", path_to_delete.display(), e);
                                             }
                                         }
+                                    }
+                                }
+                            }
+                            KeyCode::Char('y') => {
+                                // Confirm deletion
+                                if let Some(path_str) = app_state.confirm_delete.take() {
+                                    let path = std::path::PathBuf::from(&path_str);
+                                    
+                                    // Delete from our internal list
+                                    {
+                                        let mut dirs = found_dirs.lock().unwrap();
+                                        
+                                        // Remove from our list - use path string comparison
+                                        dirs.retain(|dir| dir.path.to_string_lossy() != path_str);
+                                        
+                                        // Cache will be refreshed on the next render
+                                    }
+                                    
+                                    // Actually delete the directory from the filesystem
+                                    match std::fs::remove_dir_all(&path) {
+                                        Ok(_) => {}
                                         Err(e) => {
-                                            eprintln!("Error deleting directory {}: {}", path_to_delete.display(), e);
+                                            eprintln!("Error deleting directory {}: {}", path.display(), e);
                                         }
                                     }
                                 }
-                            };
-                        }
-                    }
-                    KeyCode::Char('y') => {
-                        // Confirm deletion
-                        if let Some(path_str) = app_state.confirm_delete.take() {
-                            let path = std::path::PathBuf::from(&path_str);
-                            let selected_index = app_state.selected_index;
-                            
-                            // Delete from our internal list and the filesystem
-                            {
-                                let mut dirs = found_dirs.lock().unwrap();
-                                
-                                // Remove from our list - use path string comparison
-                                dirs.retain(|dir| dir.path.to_string_lossy() != path_str);
-                                
-                                // After deletion, refilter the list for selection updates
-                                let new_filtered_dirs = filter_dirs(&dirs, app_state.min_size_bytes, app_state.show_all_types, app_state.max_age_days, app_state.sort_order);
-                                
-                                // Update selection index
-                                if new_filtered_dirs.is_empty() {
-                                    app_state.selected_index = None;
-                                    app_state.list_state.select(None);
-                                } else if let Some(idx) = selected_index {
-                                    if idx >= new_filtered_dirs.len() {
-                                        app_state.selected_index = Some(new_filtered_dirs.len() - 1);
-                                        app_state.list_state.select(Some(new_filtered_dirs.len() - 1));
-                                    }
-                                }
                             }
-                            
-                            // Actually delete the directory from the filesystem
-                            match std::fs::remove_dir_all(&path) {
-                                Ok(_) => {}
-                                Err(e) => {
-                                    eprintln!("Error deleting directory {}: {}", path.display(), e);
-                                }
-                            }
+                            _ => unreachable!(),
                         }
                     }
                     KeyCode::Char('n') => {

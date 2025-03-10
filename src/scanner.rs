@@ -5,6 +5,7 @@ use std::time::SystemTime;
 use anyhow::Result;
 use walkdir::WalkDir;
 
+#[derive(Clone)]
 pub struct CruftDirectory {
     pub path: PathBuf,
     pub size: u64,
@@ -29,7 +30,7 @@ pub enum CruftyReason {
     VenvDir,
     DistDir,
     ToxDir,
-    Custom(String),
+    //Custom(String),
 }
 
 impl std::fmt::Display for CruftyReason {
@@ -43,7 +44,7 @@ impl std::fmt::Display for CruftyReason {
             CruftyReason::VenvDir => write!(f, "venv"),
             CruftyReason::DistDir => write!(f, "dist dir"),
             CruftyReason::ToxDir => write!(f, "tox dir"),
-            CruftyReason::Custom(reason) => write!(f, "{}", reason),
+            //CruftyReason::Custom(reason) => write!(f, "{}", reason),
         }
     }
 }
@@ -57,6 +58,7 @@ pub fn is_common_cruft(reason: &CruftyReason) -> bool {
         CruftyReason::CacheDir | 
         CruftyReason::CacheTagFound |
         CruftyReason::BuildDir |
+        CruftyReason::VenvDir |
         CruftyReason::ToxDir
     )
 }
@@ -80,16 +82,10 @@ pub fn scan_directories(
             // Skip this directory and its children if it's cruft
             if let Some(reason) = check_crufty(path) {
                 // We found cruft, so add it to our list before skipping recursion
-                let size = match calculate_dir_size(path) {
-                    Ok(size) => size,
-                    Err(_) => 0, // If we can't calculate size, use 0
-                };
+                let size = calculate_dir_size(path).unwrap_or(0);
                 
                 // Calculate the age of the newest file in the directory
-                let newest_file_age_days = match get_newest_file_age_days(path) {
-                    Ok(age) => age,
-                    Err(_) => 0, // If we can't determine age, use 0
-                };
+                let newest_file_age_days = get_newest_file_age_days(path).unwrap_or(0);
                 
                 let cruft_dir = CruftDirectory {
                     path: path.to_path_buf(),

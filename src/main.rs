@@ -10,6 +10,10 @@ use ratatui::Terminal;
 
 mod scanner;
 mod ui;
+mod cycle;
+mod sort_order;
+mod size_filter;
+mod age_filter;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -21,22 +25,6 @@ struct Args {
     /// Starting directory
     #[arg(short, long)]
     dir: Option<PathBuf>,
-    
-    /// Show only directories larger than this size in MB
-    #[arg(short = 's', long, default_value_t = 0.0)]
-    min_size: f64,
-    
-    /// Skip small cruft (less than 1 MB)
-    #[arg(short = 'S', long)]
-    skip_small: bool,
-    
-    /// Show all cruft types (by default, only shows the most common types)
-    #[arg(short, long)]
-    all: bool,
-    
-    /// Show only old directories (not modified in 90 days)
-    #[arg(short = 'o', long)]
-    old: bool,
 }
 
 fn main() -> Result<()> {
@@ -44,20 +32,7 @@ fn main() -> Result<()> {
     
     let start_dir = args.dir.unwrap_or_else(|| std::env::current_dir().unwrap());
     let max_depth = args.max_depth;
-    
-    // Convert min_size from MB to bytes
-    let min_size_bytes = (args.min_size * 1_048_576.0) as u64;
-    
-    // If skip_small is set, ensure min_size is at least 1 MB
-    let min_size_bytes = if args.skip_small && min_size_bytes < 1_048_576 {
-        1_048_576 // 1 MB in bytes
-    } else {
-        min_size_bytes
-    };
-    
-    let show_all = args.all;
-    let show_old = args.old;
-    
+
     // Set up the terminal
     setup_terminal()?;
     
@@ -85,8 +60,8 @@ fn main() -> Result<()> {
     });
     
     // Run the UI loop
-    ui::run_ui(&mut terminal, &found_dirs, &scan_complete, min_size_bytes, show_all, show_old)?;
-    
+    ui::run_ui(&mut terminal, &found_dirs, &scan_complete)?;
+
     // Clean up
     restore_terminal()?;
     
