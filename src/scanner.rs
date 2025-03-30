@@ -1,8 +1,9 @@
+use anyhow::Result;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
-use anyhow::Result;
 use walkdir::WalkDir;
 
 #[derive(Clone)]
@@ -48,35 +49,23 @@ impl std::fmt::Display for CruftyReason {
     }
 }
 
-/// Returns true if this type of cruft should be shown by default in normal mode
-/// (when --all is not specified)
-pub fn is_common_cruft(reason: &CruftyReason) -> bool {
-    matches!(
-        reason,
-        CruftyReason::NodeModules | 
-        CruftyReason::CacheDir | 
-        CruftyReason::CacheTagFound |
-        CruftyReason::BuildDir |
-        CruftyReason::VenvDir |
-        CruftyReason::ToxDir
-    )
-}
-
 pub fn scan_directories(
     start_dir: &Path,
     max_depth: usize,
     found_dirs: Arc<Mutex<Vec<CruftDirectory>>>,
+    scanned_ents: Arc<AtomicU64>,
 ) -> Result<()> {
     let walker = WalkDir::new(start_dir)
         .max_depth(max_depth)
         .into_iter()
         .filter_entry(|e| {
+            scanned_ents.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             if !e.file_type().is_dir() {
                 return true; // Always process files
             }
-            
+
             let path = e.path();
-            
+
             // Skip this directory and its children if it's cruft
             if let Some(reason) = check_crufty(path) {
                 // We found cruft, so add it to our list before skipping recursion
@@ -86,31 +75,29 @@ pub fn scan_directories(
                     crufty_reason: reason,
                     newest_file_age_days: get_newest_file_age_days(path).unwrap_or(None),
                 };
-                
+
                 // Add to the shared vector
                 if let Ok(mut dirs) = found_dirs.lock() {
                     dirs.push(cruft_dir);
                 }
-                
+
                 false // Don't recurse into this directory
             } else {
                 true // Not cruft, so continue recursion
             }
         });
 
-    for _ in walker.filter_map(Result::ok).filter(|e| e.file_type().is_dir()) {
+    for _ in walker
+        .filter_map(Result::ok)
+        .filter(|e| e.file_type().is_dir())
+    {
         // Do nothing - the work is done in filter_entry
     }
-    
+
     Ok(())
 }
 
-const PROTECTED_DIRS: &[&str] = &[
-    ".git",
-    ".github",
-    ".idea",
-    ".vscode",
-];
+const PROTECTED_DIRS: &[&str] = &[".git", ".github", ".idea", ".vscode"];
 
 /// Checks if a directory is protected and should not be considered as cruft
 fn is_protected_directory(path: &Path) -> bool {
@@ -143,17 +130,17 @@ fn check_crufty(path: &Path) -> Option<CruftyReason> {
         Some(name) => name.to_string_lossy().to_lowercase(),
         None => return None, // No filename, so it's not crufty
     };
-    
+
     // Check for node_modules
     if file_name == "node_modules" {
         return Some(CruftyReason::NodeModules);
     }
-    
+
     // Check for cache directories
     if path_str.contains(".cache") || file_name.contains("cache") {
         return Some(CruftyReason::CacheDir);
     }
-    
+
     // Check for build directories
     if file_name == "build" || file_name.contains("build") {
         return Some(CruftyReason::BuildDir);
@@ -162,37 +149,46 @@ fn check_crufty(path: &Path) -> Option<CruftyReason> {
     if file_name == "target" && path.join(".rustc_info.json").is_file() {
         return Some(CruftyReason::RustTargetDir);
     }
-    
+
     // Check for temp directories - avoid matching "templates"
-    if file_name == "tmp" || file_name == "temp" || file_name == ".tmp" || file_name == ".temp" ||
-       file_name.starts_with("temp-") || file_name.starts_with("tmp-") || 
-       file_name.ends_with("-temp") || file_name.ends_with("-tmp") {
+    if file_name == "tmp"
+        || file_name == "temp"
+        || file_name == ".tmp"
+        || file_name == ".temp"
+        || file_name.starts_with("temp-")
+        || file_name.starts_with("tmp-")
+        || file_name.ends_with("-temp")
+        || file_name.ends_with("-tmp")
+    {
         return Some(CruftyReason::TempDir);
     }
-    
+
     // Check for virtual environments
-    if file_name == "venv" || file_name == "env" || file_name == ".venv" || file_name == ".env" || 
-       file_name.starts_with("virtualenv") {
+    if file_name == "venv"
+        || file_name == "env"
+        || file_name == ".venv"
+        || file_name == ".env"
+        || file_name.starts_with("virtualenv")
+    {
         return Some(CruftyReason::VenvDir);
     }
-    
+
     // Check for distribution directories
     if file_name == "dist" || file_name == "out" || file_name.contains("dist") {
         return Some(CruftyReason::DistDir);
     }
-    
+
     // Check for tox directories
     if file_name == ".tox" {
         return Some(CruftyReason::ToxDir);
     }
-    
+
     // Check for CACHEDIR.TAG
     let cachedir_tag_path = path.join("CACHEDIR.TAG");
     if cachedir_tag_path.exists() {
         return Some(CruftyReason::CacheTagFound);
     }
-    
-        
+
     None
 }
 
@@ -231,7 +227,7 @@ fn get_newest_file_age_days(path: &Path) -> Result<Option<f64>> {
 
 fn calculate_dir_size(path: &Path) -> Result<u64> {
     let mut total_size = 0;
-    
+
     for entry in WalkDir::new(path)
         .into_iter()
         .filter_map(Result::ok)
@@ -241,6 +237,6 @@ fn calculate_dir_size(path: &Path) -> Result<u64> {
             total_size += metadata.len();
         }
     }
-    
+
     Ok(total_size)
 }

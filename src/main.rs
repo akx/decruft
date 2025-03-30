@@ -1,19 +1,21 @@
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
-
 use anyhow::{Context, Result};
 use clap::Parser;
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::ExecutableCommand;
-use ratatui::backend::CrosstermBackend;
+use crossterm::terminal::{
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+};
 use ratatui::Terminal;
+use ratatui::backend::CrosstermBackend;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
-mod scanner;
-mod ui;
-mod cycle;
-mod sort_order;
-mod size_filter;
 mod age_filter;
+mod cycle;
+mod scanner;
+mod size_filter;
+mod sort_order;
+mod ui;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -29,42 +31,46 @@ struct Args {
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    
+
     let start_dir = args.dir.unwrap_or_else(|| std::env::current_dir().unwrap());
     let max_depth = args.max_depth;
 
     // Set up the terminal
     setup_terminal()?;
-    
+
     // Initialize the TUI
     let backend = CrosstermBackend::new(std::io::stdout());
     let mut terminal = Terminal::new(backend)?;
     terminal.clear()?;
-    
+
+    let scanned_ents = Arc::new(AtomicU64::new(0));
+    let scanned_ents_clone = Arc::clone(&scanned_ents);
+
     // Shared state for the scanner and UI
     let found_dirs = Arc::new(Mutex::new(Vec::new()));
     let found_dirs_clone = Arc::clone(&found_dirs);
-    
+
     // Create a flag to indicate when scanning is complete
-    let scan_complete = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let scan_complete = Arc::new(AtomicBool::new(false));
     let scan_complete_clone = Arc::clone(&scan_complete);
-    
+
     // Start the scanner in a separate thread
     std::thread::spawn(move || {
-        let result = scanner::scan_directories(&start_dir, max_depth, found_dirs_clone);
+        let result =
+            scanner::scan_directories(&start_dir, max_depth, found_dirs_clone, scanned_ents_clone);
         if let Err(e) = result {
             eprintln!("Error scanning directories: {}", e);
         }
         // Mark scan as complete
-        scan_complete_clone.store(true, std::sync::atomic::Ordering::Relaxed);
+        scan_complete_clone.store(true, Ordering::Relaxed);
     });
-    
+
     // Run the UI loop
-    ui::run_ui(&mut terminal, &found_dirs, &scan_complete)?;
+    ui::run_ui(&mut terminal, &found_dirs, &scan_complete, &scanned_ents)?;
 
     // Clean up
     restore_terminal()?;
-    
+
     Ok(())
 }
 
