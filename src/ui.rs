@@ -9,12 +9,12 @@ use crate::size_filter::SizeFilter;
 use crate::sort_order::SortOrder;
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode};
-use ratatui::Terminal;
 use ratatui::backend::Backend;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
+use ratatui::Terminal;
 
 pub struct AppState {
     pub list_state: ListState,
@@ -251,17 +251,15 @@ pub fn run_ui<B: Backend>(
                 filter_parts.push(format!("sort: {}", app_state.sort_order.as_str()));
 
                 let header = if app_state.scan_complete {
-                    "Decruft".to_string()
+                    format!("Decruft: Found {} dirs in {} entities", n_total_dirs, n_scanned_ents.load(Ordering::Relaxed))
                 } else {
                     let spinner = SPINNER_CHARS[app_state.spinner_frame];
-                    format!("{} Decruft", spinner)
+                    format!("{} Decruft: Scanning {} entities, found {} dirs so far", spinner, n_scanned_ents.load(Ordering::Relaxed), n_total_dirs)
                 };
 
                 let status_text = format!(
-                    "{}: Scanned {} entities, found {} dirs (showing {}, {}). Total: {:.2} MB",
+                    "{} (showing {}, {}). Total: {:.2} MB",
                     header,
-                    n_scanned_ents.load(Ordering::Relaxed),
-                    n_total_dirs,
                     filtered_dirs.len(),
                     filter_parts.join(", "),
                     total_size as f64 / 1_048_576.0
@@ -274,7 +272,7 @@ pub fn run_ui<B: Backend>(
             }
 
             // Always show help line at the bottom
-            let help_text = "j/k: Navigate | a: Toggle all types | s: Toggle small files | o: Toggle age filter | r: Toggle sort | d: Delete | D: Delete (no confirm) | h: Help | q: Quit";
+            let help_text = "j/k: Navigate | a: Toggle all types | s: Toggle small files | o: Toggle age filter | r: Toggle sort | d: Delete | D: Delete (no confirm) | q: Quit";
             let help_line = Paragraph::new(help_text)
                 .style(Style::default().fg(Color::DarkGray));
             f.render_widget(help_line, chunks[2]);
@@ -287,6 +285,12 @@ pub fn run_ui<B: Backend>(
                     Some(_) => match key.code {
                         KeyCode::Char('y') => {
                             if let Some(path_str) = app_state.confirm_delete.take() {
+                                terminal.draw(|f| {
+                                    let confirm = Paragraph::new("Deleting...")
+                                        .style(Style::default().fg(Color::Red))
+                                        .block(Block::default().borders(Borders::BOTTOM));
+                                    f.render_widget(confirm, f.size());
+                                })?;
                                 do_delete_now(found_dirs, &path_str);
                             }
                         }
