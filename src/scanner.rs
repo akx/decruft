@@ -49,22 +49,32 @@ impl std::fmt::Display for CruftyReason {
     }
 }
 
+pub struct ScanProgress {
+    pub scanned: u64,
+    pub found: u64,
+}
+
 pub fn scan_directories(
     start_dir: &Path,
     max_depth: usize,
     found_dirs: Arc<Mutex<Vec<CruftDirectory>>>,
     scanned_ents: Arc<AtomicU64>,
+    progress_callback: Option<Box<dyn Fn(ScanProgress) + Send + Sync>>,
 ) -> Result<()> {
     let walker = WalkDir::new(start_dir)
         .max_depth(max_depth)
         .into_iter()
         .filter_entry(|e| {
-            scanned_ents.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             if !e.file_type().is_dir() {
-                return true; // Always process files
+                return true; // Skip checking files for their cruftiness
             }
+            scanned_ents.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
             let path = e.path();
+
+            if path == start_dir {
+                return true; // Don't consider the starting directory itself
+            }
 
             // Skip this directory and its children if it's cruft
             if let Some(reason) = check_crufty(path) {
@@ -79,6 +89,11 @@ pub fn scan_directories(
                 // Add to the shared vector
                 if let Ok(mut dirs) = found_dirs.lock() {
                     dirs.push(cruft_dir);
+                    if let Some(callback) = &progress_callback {
+                        let scanned = scanned_ents.load(std::sync::atomic::Ordering::Relaxed);
+                        let found = dirs.len() as u64;
+                        callback(ScanProgress { scanned, found });
+                    }
                 }
 
                 false // Don't recurse into this directory
@@ -87,10 +102,7 @@ pub fn scan_directories(
             }
         });
 
-    for _ in walker
-        .filter_map(Result::ok)
-        .filter(|e| e.file_type().is_dir())
-    {
+    for _ in walker.filter_map(Result::ok) {
         // Do nothing - the work is done in filter_entry
     }
 

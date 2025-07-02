@@ -182,7 +182,7 @@ pub fn run_ui<B: Backend>(
                     Constraint::Min(10),   // List content
                     Constraint::Length(1), // Help line
                 ])
-                .split(f.size());
+                .split(f.area());
 
             // Status bar at the top (no title bar)
 
@@ -289,7 +289,7 @@ pub fn run_ui<B: Backend>(
                                     let confirm = Paragraph::new("Deleting...")
                                         .style(Style::default().fg(Color::Red))
                                         .block(Block::default().borders(Borders::BOTTOM));
-                                    f.render_widget(confirm, f.size());
+                                    f.render_widget(confirm, f.area());
                                 })?;
                                 do_delete_now(found_dirs, &path_str);
                             }
