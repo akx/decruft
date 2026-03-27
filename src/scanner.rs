@@ -18,6 +18,14 @@ impl CruftDirectory {
     pub fn id(&self) -> String {
         self.path.to_string_lossy().to_string()
     }
+
+    /// Trashiness score: product of size (in MB) and age (in days).
+    /// Higher means more worth cleaning up (big and old = trashy).
+    pub fn trashiness(&self) -> f64 {
+        let size_mb = self.size as f64 / (1024.0 * 1024.0);
+        let age_days = self.newest_file_age_days.unwrap_or(0.0);
+        size_mb * age_days
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

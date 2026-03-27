@@ -5,15 +5,17 @@ use crate::scanner::CruftDirectory;
 pub enum SortOrder {
     SizeDescending,
     AgeDescending,
+    Trashiness,
     Alphabetical,
 }
 
 
 impl Cycle for SortOrder {
     fn all_values() -> &'static [Self] {
-        static ALL: [SortOrder; 3] = [
+        static ALL: [SortOrder; 4] = [
             SortOrder::SizeDescending,
             SortOrder::AgeDescending,
+            SortOrder::Trashiness,
             SortOrder::Alphabetical,
         ];
         &ALL
@@ -25,6 +27,7 @@ impl SortOrder {
         match self {
             SortOrder::SizeDescending => "size",
             SortOrder::AgeDescending => "age",
+            SortOrder::Trashiness => "trashiness",
             SortOrder::Alphabetical => "name",
         }
     }
@@ -40,6 +43,9 @@ impl SortOrder {
                     let age2 = a.newest_file_age_days.unwrap_or(0.0);
                     age1.total_cmp(&age2)
                 });
+            }
+            SortOrder::Trashiness => {
+                entries.sort_by(|a, b| b.trashiness().total_cmp(&a.trashiness()));
             }
             SortOrder::Alphabetical => {
                 entries.sort_by(|a, b| a.path.to_string_lossy().cmp(&b.path.to_string_lossy()));
