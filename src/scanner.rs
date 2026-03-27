@@ -38,6 +38,7 @@ pub enum CruftyReason {
     TempDir,
     VenvDir,
     DistDir,
+    TestReportDir,
     ToxDir,
 }
 
@@ -51,6 +52,7 @@ impl std::fmt::Display for CruftyReason {
             CruftyReason::NodeModules => write!(f, "node_modules"),
             CruftyReason::RustTargetDir => write!(f, "rust target dir"),
             CruftyReason::TempDir => write!(f, "temp dir"),
+            CruftyReason::TestReportDir => write!(f, "test reports"),
             CruftyReason::ToxDir => write!(f, "tox dir"),
             CruftyReason::VenvDir => write!(f, "venv"),
         }
@@ -195,6 +197,11 @@ fn check_crufty(path: &Path) -> Option<CruftyReason> {
     // Check for distribution directories
     if file_name == "dist" || file_name == "out" || file_name.contains("dist") {
         return Some(CruftyReason::DistDir);
+    }
+
+    // Check for test report directories
+    if file_name == "htmlcov" {
+        return Some(CruftyReason::TestReportDir);
     }
 
     // Check for tox directories
