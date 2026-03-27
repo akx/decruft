@@ -22,7 +22,6 @@ impl SizeFilter {
     }
 }
 
-
 impl Cycle for SizeFilter {
     fn all_values() -> &'static [Self] {
         static ALL: [SizeFilter; 2] = [SizeFilter::ShowAll, SizeFilter::SkipSmall];

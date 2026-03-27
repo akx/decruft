@@ -9,7 +9,6 @@ pub enum SortOrder {
     Alphabetical,
 }
 
-
 impl Cycle for SortOrder {
     fn all_values() -> &'static [Self] {
         static ALL: [SortOrder; 4] = [

@@ -27,7 +27,6 @@ impl AgeFilter {
     }
 }
 
-
 impl Cycle for AgeFilter {
     fn all_values() -> &'static [Self] {
         static ALL: [AgeFilter; 4] = [

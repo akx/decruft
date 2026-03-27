@@ -130,10 +130,10 @@ fn is_protected_directory(path: &Path) -> bool {
         }
     }
 
-    if let Some(last_component) = path_str.rsplit('/').next() {
-        if PROTECTED_DIRS.contains(&last_component) {
-            return true;
-        }
+    if let Some(last_component) = path_str.rsplit('/').next()
+        && PROTECTED_DIRS.contains(&last_component)
+    {
+        return true;
     }
 
     false
@@ -242,11 +242,11 @@ fn get_newest_file_age_days(path: &Path) -> Result<Option<f64>> {
     }
 
     // If no files found, use the directory's own modification time
-    if let Ok(metadata) = fs::metadata(path) {
-        if let Ok(modified_time) = metadata.modified() {
-            let since = now.duration_since(modified_time)?.as_secs();
-            return Ok(Some(since as f64 / 86400.0));
-        }
+    if let Ok(metadata) = fs::metadata(path)
+        && let Ok(modified_time) = metadata.modified()
+    {
+        let since = now.duration_since(modified_time)?.as_secs();
+        return Ok(Some(since as f64 / 86400.0));
     }
     Ok(None)
 }

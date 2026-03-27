@@ -9,12 +9,12 @@ use crate::size_filter::SizeFilter;
 use crate::sort_order::SortOrder;
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode};
+use ratatui::Terminal;
 use ratatui::backend::Backend;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
-use ratatui::Terminal;
 
 pub struct AppState {
     pub list_state: ListState,
@@ -127,10 +127,10 @@ fn filter_dirs(dirs: &[CruftDirectory], app_state: &AppState) -> Vec<CruftDirect
             if dir.size < min_size_bytes {
                 return false;
             }
-            if let Some(days) = max_age_days {
-                if dir.newest_file_age_days.unwrap_or(0.0) < days as f64 {
-                    return false;
-                }
+            if let Some(days) = max_age_days
+                && dir.newest_file_age_days.unwrap_or(0.0) < days as f64
+            {
+                return false;
             }
             true
         })
@@ -147,7 +147,10 @@ pub fn run_ui<B: Backend>(
     found_dirs: &Arc<Mutex<Vec<CruftDirectory>>>,
     scan_complete: &Arc<std::sync::atomic::AtomicBool>,
     n_scanned_ents: &Arc<AtomicU64>,
-) -> Result<()> {
+) -> Result<()>
+where
+    B::Error: Send + Sync + 'static,
+{
     let mut app_state = AppState::new();
 
     const SPINNER_CHARS: [&str; 8] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"];
@@ -264,52 +267,50 @@ pub fn run_ui<B: Backend>(
             f.render_widget(help_line, chunks[2]);
         })?;
 
-        if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                match &app_state.confirm_delete {
-                    Some(_) => match key.code {
-                        KeyCode::Char('y') => {
-                            if let Some(path_str) = app_state.confirm_delete.take() {
-                                terminal.draw(|f| {
-                                    let confirm = Paragraph::new("Deleting...")
-                                        .style(Style::default().fg(Color::Red))
-                                        .block(Block::default().borders(Borders::BOTTOM));
-                                    f.render_widget(confirm, f.area());
-                                })?;
-                                do_delete_now(found_dirs, &path_str);
-                            }
-                        }
-                        KeyCode::Char('n') => {
-                            app_state.cancel_delete_confirmation();
-                        }
-                        _ => {}
-                    },
-                    None => {
-                        match key.code {
-                            KeyCode::Char('q') => break,
-                            KeyCode::Char('j') | KeyCode::Down => {
-                                app_state.select_next_or_previous(&filtered_dirs, true)
-                            }
-                            KeyCode::Char('k') | KeyCode::Up => {
-                                app_state.select_next_or_previous(&filtered_dirs, false)
-                            }
-                            KeyCode::Char('s') => app_state.toggle_skip_small(),
-                            KeyCode::Char('o') => app_state.toggle_old_dirs(),
-                            KeyCode::Char('r') => app_state.toggle_sort_order(),
-                            KeyCode::Char('d') => {
-                                if let Some(ref selected_path) = app_state.selected_path {
-                                    app_state.request_delete_confirmation(selected_path.clone());
-                                }
-                            }
-                            KeyCode::Char('D') => {
-                                if let Some(ref selected_path) = app_state.selected_path {
-                                    do_delete_now(found_dirs, selected_path);
-                                }
-                            }
-                            _ => {}
+        if event::poll(Duration::from_millis(100))?
+            && let Event::Key(key) = event::read()?
+        {
+            match &app_state.confirm_delete {
+                Some(_) => match key.code {
+                    KeyCode::Char('y') => {
+                        if let Some(path_str) = app_state.confirm_delete.take() {
+                            terminal.draw(|f| {
+                                let confirm = Paragraph::new("Deleting...")
+                                    .style(Style::default().fg(Color::Red))
+                                    .block(Block::default().borders(Borders::BOTTOM));
+                                f.render_widget(confirm, f.area());
+                            })?;
+                            do_delete_now(found_dirs, &path_str);
                         }
                     }
-                }
+                    KeyCode::Char('n') => {
+                        app_state.cancel_delete_confirmation();
+                    }
+                    _ => {}
+                },
+                None => match key.code {
+                    KeyCode::Char('q') => break,
+                    KeyCode::Char('j') | KeyCode::Down => {
+                        app_state.select_next_or_previous(&filtered_dirs, true)
+                    }
+                    KeyCode::Char('k') | KeyCode::Up => {
+                        app_state.select_next_or_previous(&filtered_dirs, false)
+                    }
+                    KeyCode::Char('s') => app_state.toggle_skip_small(),
+                    KeyCode::Char('o') => app_state.toggle_old_dirs(),
+                    KeyCode::Char('r') => app_state.toggle_sort_order(),
+                    KeyCode::Char('d') => {
+                        if let Some(ref selected_path) = app_state.selected_path {
+                            app_state.request_delete_confirmation(selected_path.clone());
+                        }
+                    }
+                    KeyCode::Char('D') => {
+                        if let Some(ref selected_path) = app_state.selected_path {
+                            do_delete_now(found_dirs, selected_path);
+                        }
+                    }
+                    _ => {}
+                },
             }
         }
     }
